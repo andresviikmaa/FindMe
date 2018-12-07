@@ -1,11 +1,16 @@
 package ee.zed.findme;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Movie;
+import android.location.Location;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.DividerItemDecoration;
@@ -23,16 +28,31 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import com.google.android.gms.location.Geofence;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 import ee.zed.findme.model.LocationModel;
+import io.nlopez.smartlocation.OnGeofencingTransitionListener;
+import io.nlopez.smartlocation.OnLocationUpdatedListener;
+import io.nlopez.smartlocation.SmartLocation;
+import io.nlopez.smartlocation.geofencing.model.GeofenceModel;
+import io.nlopez.smartlocation.geofencing.utils.TransitionGeofence;
+import lombok.val;
 
 public class MainActivity extends AppCompatActivity {
 
     private List<LocationModel> locationList = new ArrayList<>();
+    private List<GeofenceModel> fenceList = new ArrayList<>();
+
     private RecyclerView recyclerView;
     private LocationAdapter mAdapter;
+    private static final int PERMISSIONS_ACCESS_FINE_LOCATION = 124;
+    private View mLayout;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,6 +60,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        mLayout = findViewById(R.id.main_layout);
 
         FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
         fab.setOnClickListener(new View.OnClickListener() {
@@ -85,6 +107,16 @@ public class MainActivity extends AppCompatActivity {
         }));
 
         prepareLocationData();
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Permission is not granted
+            requestLocationPermission();
+        } else {
+            startTracking();
+        }
+
+
     }
 
     private void prepareLocationData() {
@@ -94,6 +126,112 @@ public class MainActivity extends AppCompatActivity {
         locationList.add(loc_2);
         LocationModel loc_3 = LocationModel.builder().name("Tartu Saksa Kultuuri Instituut").lat(58.378937).lng(26.709121).build();
         locationList.add(loc_3);
+    }
+
+    /**
+     * Requests the {@link android.Manifest.permission#CAMERA} permission.
+     * If an additional rationale should be displayed, the user has to launch the request from
+     * a SnackBar that includes additional information.
+     */
+    private void requestLocationPermission() {
+        // Permission has not been granted and must be requested.
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this,
+                Manifest.permission.ACCESS_FINE_LOCATION)) {
+            // Provide an additional rationale to the user if the permission was not granted
+            // and the user would benefit from additional context for the use of the permission.
+            // Display a SnackBar with cda button to request the missing permission.
+            Snackbar.make(mLayout, R.string.location_access_required,
+                    Snackbar.LENGTH_INDEFINITE).setAction(R.string.ok, new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    // Request the permission
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                            new String[]{Manifest.permission.CAMERA},
+                            PERMISSIONS_ACCESS_FINE_LOCATION);
+                }
+            }).show();
+
+        } else {
+            Snackbar.make(mLayout, R.string.location_unavailable, Snackbar.LENGTH_SHORT).show();
+            // Request the permission. The result will be received in onRequestPermissionResult().
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_ACCESS_FINE_LOCATION);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String permissions[], int[] grantResults) {
+        switch (requestCode) {
+            case PERMISSIONS_ACCESS_FINE_LOCATION: {
+                // If request is cancelled, the result arrays are empty.
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startTracking();
+                } else {
+                    // permission denied, boo! Disable the
+                    // functionality that depends on this permission.
+                    Snackbar.make(mLayout, "Please allow location sensing!", Snackbar.LENGTH_LONG)
+                            .setAction("Action", null).show();
+                }
+                return;
+            }
+
+            // other 'case' lines to check for other
+            // permissions this app might request.
+        }
+    }
+
+    private void startTracking() {
+        SmartLocation.with(getApplicationContext()).location()
+                .start(new OnLocationUpdatedListener() {
+                    @Override
+                    public void onLocationUpdated(final Location location) {
+                        TextView textBox = findViewById(R.id.current_location);
+                        textBox.setText(String.format("%1$,.5f, %2$,.5f\nAltitude:%3$,.2f", location.getLatitude(), location.getLongitude(), location.getAltitude() ));
+                        locationList.forEach(new Consumer<LocationModel>() {
+                            @Override
+                            public void accept(LocationModel locationModel) {
+                                val loc = new Location(locationModel.name);
+                                loc.setLatitude(locationModel.lat);
+                                loc.setLongitude(locationModel.lng);
+                                locationModel.distance = location.distanceTo(loc);
+                            }
+                        });
+                        mAdapter.notifyDataSetChanged();
+                    }
+                });
+
+        locationList.forEach(new Consumer<LocationModel>() {
+            @Override
+            public void accept(LocationModel locationModel) {
+                GeofenceModel fence = new GeofenceModel.Builder(locationModel.name)
+                        .setTransition(Geofence.GEOFENCE_TRANSITION_ENTER)
+                        .setLatitude(locationModel.lat)
+                        .setLongitude(locationModel.lng)
+                        .setRadius(10)
+                        .build();
+                fenceList.add(fence);
+            }
+        });
+
+        SmartLocation.with(getApplicationContext()).geofencing().addAll(fenceList).start(new OnGeofencingTransitionListener() {
+            @Override
+            public void onGeofenceTransition(TransitionGeofence transitionGeofence) {
+                int type = transitionGeofence.getTransitionType();
+                GeofenceModel model = transitionGeofence.getGeofenceModel();
+                final String title = model.getRequestId();
+                locationList.forEach(new Consumer<LocationModel>() {
+                    @Override
+                    public void accept(LocationModel locationModel) {
+                        if (locationModel.name  == title) {
+                            locationModel.inFence = true;
+                        }
+                    }
+                });
+            }
+        });
+
     }
 
     @Override
