@@ -24,10 +24,12 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
 
 import java.util.ArrayList;
@@ -37,14 +39,18 @@ import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 import ee.zed.findme.model.LocationModel;
+import io.nlopez.smartlocation.OnActivityUpdatedListener;
 import io.nlopez.smartlocation.OnGeofencingTransitionListener;
 import io.nlopez.smartlocation.OnLocationUpdatedListener;
 import io.nlopez.smartlocation.SmartLocation;
 import io.nlopez.smartlocation.geofencing.model.GeofenceModel;
 import io.nlopez.smartlocation.geofencing.utils.TransitionGeofence;
+import io.nlopez.smartlocation.location.config.LocationAccuracy;
+import io.nlopez.smartlocation.location.config.LocationParams;
+import io.nlopez.smartlocation.location.providers.LocationGooglePlayServicesProvider;
 import lombok.val;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements OnLocationUpdatedListener, OnActivityUpdatedListener, OnGeofencingTransitionListener {
 
     private List<LocationModel> locationList = new ArrayList<>();
     private List<GeofenceModel> fenceList = new ArrayList<>();
@@ -53,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
     private LocationAdapter mAdapter;
     private static final int PERMISSIONS_ACCESS_FINE_LOCATION = 124;
     private View mLayout;
+    private LocationGooglePlayServicesProvider provider;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,6 +123,8 @@ public class MainActivity extends AppCompatActivity {
             startTracking();
         }
 
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        showLast();
 
     }
 
@@ -181,26 +190,24 @@ public class MainActivity extends AppCompatActivity {
             // permissions this app might request.
         }
     }
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (provider != null) {
+            provider.onActivityResult(requestCode, resultCode, data);
+        }
+    }
 
     private void startTracking() {
-        SmartLocation.with(getApplicationContext()).location()
-                .start(new OnLocationUpdatedListener() {
-                    @Override
-                    public void onLocationUpdated(final Location location) {
-                        TextView textBox = findViewById(R.id.current_location);
-                        textBox.setText(String.format("%1$,.5f, %2$,.5f\nAltitude:%3$,.2f", location.getLatitude(), location.getLongitude(), location.getAltitude() ));
-                        locationList.forEach(new Consumer<LocationModel>() {
-                            @Override
-                            public void accept(LocationModel locationModel) {
-                                val loc = new Location(locationModel.name);
-                                loc.setLatitude(locationModel.lat);
-                                loc.setLongitude(locationModel.lng);
-                                locationModel.distance = location.distanceTo(loc);
-                            }
-                        });
-                        mAdapter.notifyDataSetChanged();
-                    }
-                });
+        provider = new LocationGooglePlayServicesProvider();
+        provider.setCheckLocationSettings(true);
+
+        SmartLocation smartLocation = new SmartLocation.Builder(this).logging(true).build();
+
+        smartLocation.location(provider).config(LocationParams.NAVIGATION).start(this);
+        smartLocation.activity().start(this);
+
+        //SmartLocation.with(getApplicationContext()).location().start(this);
 
         locationList.forEach(new Consumer<LocationModel>() {
             @Override
@@ -215,22 +222,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        SmartLocation.with(getApplicationContext()).geofencing().addAll(fenceList).start(new OnGeofencingTransitionListener() {
-            @Override
-            public void onGeofenceTransition(TransitionGeofence transitionGeofence) {
-                int type = transitionGeofence.getTransitionType();
-                GeofenceModel model = transitionGeofence.getGeofenceModel();
-                final String title = model.getRequestId();
-                locationList.forEach(new Consumer<LocationModel>() {
-                    @Override
-                    public void accept(LocationModel locationModel) {
-                        if (locationModel.name  == title) {
-                            locationModel.inFence = true;
-                        }
-                    }
-                });
-            }
-        });
+        SmartLocation.with(getApplicationContext()).geofencing().addAll(fenceList).start(this);
 
     }
 
@@ -254,5 +246,112 @@ public class MainActivity extends AppCompatActivity {
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void onLocationUpdated(Location location) {
+        showLocation(location);
+    }
+
+    @Override
+    public void onActivityUpdated(DetectedActivity detectedActivity) {
+        showActivity(detectedActivity);
+    }
+
+    private void showActivity(DetectedActivity detectedActivity) {
+        val activityText = (TextView) findViewById(R.id.current_activity);
+        if (detectedActivity != null) {
+            activityText.setText(
+                    String.format("Activity %s with %d%% confidence",
+                            getNameFromType(detectedActivity),
+                            detectedActivity.getConfidence())
+            );
+        } else {
+            activityText.setText("Null activity");
+        }
+    }
+
+
+    @Override
+    public void onGeofenceTransition(TransitionGeofence transitionGeofence) {
+        int type = transitionGeofence.getTransitionType();
+        GeofenceModel model = transitionGeofence.getGeofenceModel();
+        final String title = model.getRequestId();
+        locationList.forEach(new Consumer<LocationModel>() {
+            @Override
+            public void accept(LocationModel locationModel) {
+                if (locationModel.name  == title) {
+                    locationModel.inFence = true;
+                }
+            }
+        });
+
+    }
+
+    public void showLocation(final Location location) {
+        TextView textBox = findViewById(R.id.current_location);
+        textBox.setText(String.format("%1$,.5f, %2$,.5f\nAltitude:%3$,.2f", location.getLatitude(), location.getLongitude(), location.getAltitude() ));
+        locationList.forEach(new Consumer<LocationModel>() {
+            @Override
+            public void accept(LocationModel locationModel) {
+                val loc = new Location(locationModel.name);
+                loc.setLatitude(locationModel.lat);
+                loc.setLongitude(locationModel.lng);
+                locationModel.distance = location.distanceTo(loc);
+            }
+        });
+        mAdapter.notifyDataSetChanged();
+
+    }
+
+    private void showLast() {
+        TextView textBox = findViewById(R.id.current_location);
+        String text = "";
+        Location lastLocation = SmartLocation.with(this).location().getLastLocation();
+        if (lastLocation != null) {
+            text =
+                    String.format("[From Cache] Latitude %.6f, Longitude %.6f",
+                            lastLocation.getLatitude(),
+                            lastLocation.getLongitude())
+            ;
+        }
+        TextView activityText = findViewById(R.id.current_activity);
+
+        DetectedActivity detectedActivity = SmartLocation.with(this).activity().getLastActivity();
+        if (detectedActivity != null) {
+            text +=
+                    String.format("[From Cache] Activity %s with %d%% confidence",
+                            getNameFromType(detectedActivity),
+                            detectedActivity.getConfidence())
+            ;
+        }
+        textBox.setText(text);
+    }
+    private String getNameFromType(DetectedActivity activityType) {
+        switch (activityType.getType()) {
+            case DetectedActivity.IN_VEHICLE:
+                return "in_vehicle";
+            case DetectedActivity.ON_BICYCLE:
+                return "on_bicycle";
+            case DetectedActivity.ON_FOOT:
+                return "on_foot";
+            case DetectedActivity.STILL:
+                return "still";
+            case DetectedActivity.TILTING:
+                return "tilting";
+            default:
+                return "unknown";
+        }
+    }
+
+    private String getTransitionNameFromType(int transitionType) {
+        switch (transitionType) {
+            case Geofence.GEOFENCE_TRANSITION_ENTER:
+                return "enter";
+            case Geofence.GEOFENCE_TRANSITION_EXIT:
+                return "exit";
+            default:
+                return "dwell";
+        }
     }
 }
