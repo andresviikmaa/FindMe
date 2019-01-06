@@ -38,7 +38,7 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
         myViewHolder.title.setText(location.getName());
         myViewHolder.lat_lng.setText(String.format("%1$,.5f, %2$,.5f", location.getLat(), location.getLng() ));
         myViewHolder.distance.setText(String.format("%1$,.2f m", location.distance ));
-        myViewHolder.itemView.setBackgroundColor(location.isInFence() ? Color.GREEN : Color.TRANSPARENT);
+        myViewHolder.itemView.setBackgroundColor(location.distance < 20 ? Color.GREEN : Color.TRANSPARENT);
     }
 
 
