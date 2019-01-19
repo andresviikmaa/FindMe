@@ -14,13 +14,24 @@
         android:layout_height="wrap_content" />
 
     <TextView
+        android:id="@+id/current_fence"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="8dp"
+        android:text=""
+        android:textSize="16sp"
+        app:layout_constraintBottom_toTopOf="@+id/current_activity"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <TextView
         android:id="@+id/current_activity"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_marginBottom="8dp"
         android:text="No activity"
-        android:textSize="24sp"
+        android:textSize="16sp"
         app:layout_constraintBottom_toTopOf="@+id/current_location"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -31,7 +42,7 @@
         android:layout_marginStart="8dp"
         android:layout_marginBottom="8dp"
         android:text="Positioning...."
-        android:textSize="24sp"
+        android:textSize="16sp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 

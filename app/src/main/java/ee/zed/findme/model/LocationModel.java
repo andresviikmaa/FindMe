@@ -12,6 +12,9 @@ public class LocationModel {
     public String name;
     public double lat;
     public double lng;
+    @Builder.Default
     public double distance = -1;
+    @Builder.Default
     public boolean inFence = false;
 }
+
