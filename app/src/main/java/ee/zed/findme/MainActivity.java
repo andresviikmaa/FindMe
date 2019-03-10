@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.RemoteException;
 import android.preference.PreferenceManager;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
@@ -31,19 +32,26 @@ import android.widget.Toast;
 
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
+import com.opencsv.CSVReader;
+
+import org.altbeacon.beacon.Beacon;
+import org.altbeacon.beacon.BeaconManager;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Consumer;
 
 import ee.zed.findme.model.LocationAdapter;
-import ee.zed.findme.model.LocationEntity;
+import ee.zed.findme.model.LocationModel;
 import ee.zed.findme.model.LocationViewModel;
 import io.nlopez.smartlocation.OnActivityUpdatedListener;
 import io.nlopez.smartlocation.OnGeofencingTransitionListener;
@@ -55,6 +63,9 @@ import io.nlopez.smartlocation.geofencing.utils.TransitionGeofence;
 import io.nlopez.smartlocation.location.config.LocationParams;
 import io.nlopez.smartlocation.location.providers.LocationGooglePlayServicesProvider;
 import lombok.val;
+import org.altbeacon.beacon.BeaconParser;
+import org.altbeacon.beacon.RangeNotifier;
+import org.altbeacon.beacon.Region;
 
 public class MainActivity extends AppCompatActivity implements OnLocationUpdatedListener, OnActivityUpdatedListener, OnGeofencingTransitionListener {
 
@@ -74,6 +85,9 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
 
     private double geofenceRadius = 12.0;
     private double minAccuracy = 12.0;
+
+
+    final private String IBEACON_LAYOUT = "m:0-3=4c000215,i:4-19,i:20-21,i:22-23,p:24-24";
 
 
     @Override
@@ -137,7 +151,7 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
         recyclerView.addOnItemTouchListener(new RecyclerTouchListener(getApplicationContext(), recyclerView, new RecyclerTouchListener.ClickListener() {
             @Override
             public void onClick(View view, int position) {
-                LocationEntity location = mAdapter.getItem(position);
+                LocationModel location = mAdapter.getItem(position);
                 Intent showMap = new Intent(getApplicationContext(), MapsActivity.class);
                 showMap.putExtra("new", false);
                 showMap.putExtra("title", location.name);
@@ -153,19 +167,10 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
                 // textView.setFocusableInTouchMode(true);
                 // textView.setInputType(InputType.TYPE_CLASS_TEXT);
                 // textView.requestFocus(); //to trigger the soft input
-                LocationEntity locationEntity = mAdapter.getItem(position);
-                mLocationViewModel.delete(locationEntity);
             }
         }));
 
-        mLocationViewModel = ViewModelProviders.of(this).get(LocationViewModel.class);
-        mLocationViewModel.getAllLocations().observe(this, new Observer<List<LocationEntity>>() {
-            @Override
-            public void onChanged(@Nullable final List<LocationEntity> locations) {
-                // Update the cached copy of the words in the adapter.
-                mAdapter.setLocations(locations);
-            }
-        });
+        mAdapter.setLocations(loadData());
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -184,8 +189,51 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         showLast();
+    }
 
+    private List<LocationModel> loadData() {
+        File path = Environment.getExternalStoragePublicDirectory("tartu1913");
+        File file = new File(path, "locations.txt");
+        LinkedList<LocationModel> data = new LinkedList<>();
+        try {
+            CSVReader reader = new CSVReader(new FileReader(file), '\t');
+            String[] r;
+            while ((r = reader.readNext()) != null) {
+                LocationModel loc = LocationModel.builder()
+                        .name(r[0])
+                        .lat(Double.parseDouble(r[1]))
+                        .lng(Double.parseDouble(r[2]))
+                        .radius(Double.parseDouble(r[4]))
+                        .bt_address(r[5])
+                        //.bt_name(r[6])
+                        .video(r[7]).build();
+                data.add(loc);
+            }
+        } catch (IOException e) {
 
+        }
+        return data;
+    }
+
+    private void setupBeacons() {
+        val beaconManager = BeaconManager.getInstanceForApplication(this);
+        beaconManager.setForegroundBetweenScanPeriod(2);
+
+        // Add all the beacon types we want to discover
+        beaconManager.getBeaconParsers().add(new BeaconParser().setBeaconLayout(IBEACON_LAYOUT));
+        beaconManager.addRangeNotifier(new RangeNotifier() {
+
+            @Override
+            public void didRangeBeaconsInRegion(Collection<Beacon> collection, Region region) {
+                Log.d("didRangeBeaconsInRegion", collection.toString());
+                mAdapter.beaconsChanged(collection, region);
+            }
+        });
+        try {
+            beaconManager.startRangingBeaconsInRegion(new Region("com.bridou_n.beaconscanner", null, null, null));
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -257,41 +305,6 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
         } catch (IOException e) {
 
             Log.e(TAG, e.getMessage(), e);
-        }
-    }
-
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == NEW_LOCATION_ACTIVITY_REQUEST_CODE) {
-            if (resultCode == RESULT_OK) {
-                Location lastLocation = SmartLocation.with(this).location().getLastLocation();
-                if (lastLocation != null) {
-                LocationEntity location = new LocationEntity();
-                    location.name = data.getStringExtra(NewLocationActivity.EXTRA_REPLY);
-                    location.lat = lastLocation.getLatitude();
-                    location.lng =   lastLocation.getLongitude();
-                    location.altitude = lastLocation.getAltitude();
-
-                    mLocationViewModel.insert(location);
-                } else {
-                    Toast.makeText(
-                            getApplicationContext(),
-                            R.string.location_unavailable,
-                            Toast.LENGTH_LONG).show();
-
-                }
-
-            } else {
-                Toast.makeText(
-                        getApplicationContext(),
-                        R.string.empty_not_saved,
-                        Toast.LENGTH_LONG).show();
-            }
-        } else {
-            if (provider != null) {
-                provider.onActivityResult(requestCode, resultCode, data);
-            }
         }
     }
 
@@ -406,6 +419,7 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
 
         //SmartLocation.with(getApplicationContext()).location().start(this);
         final val that = this;
+        /*
         mLocationViewModel.getAllLocations().observe(this, new Observer<List<LocationEntity>>() {
             @Override
             public void onChanged(@Nullable final List<LocationEntity> locations) {
@@ -425,7 +439,8 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
                 SmartLocation.with(that).geofencing().addAll(fenceList).start(that);
             }
         });
-
+        */
+        setupBeacons();
     }
 
     private void stopTracking() {
@@ -488,12 +503,13 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
 
 
     private void showGeofence(Geofence geofence, int transitionType) {
+        /*
         TextView textBox = findViewById(R.id.current_location);
         String text = "Null geofence";
         if (geofence != null) {
             text = "Transition " + getTransitionNameFromType(transitionType) + " for Geofence with id = " + geofence.getRequestId();
         }
-        val locations = mLocationViewModel.getAllLocations().getValue();
+        val locations = mLocationViewModel.getAllLocations()
         if (locations != null) {
             boolean found = false;
             for (val location: locations) {
@@ -506,7 +522,7 @@ public class MainActivity extends AppCompatActivity implements OnLocationUpdated
                 textBox.setText(text);
             }
         }
-
+        */
     }
     @Override
     public void onGeofenceTransition(TransitionGeofence transitionGeofence) {

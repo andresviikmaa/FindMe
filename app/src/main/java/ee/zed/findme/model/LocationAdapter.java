@@ -15,9 +15,14 @@ import android.widget.TextView;
 import com.google.android.gms.location.DetectedActivity;
 import com.google.android.gms.location.Geofence;
 
+import org.altbeacon.beacon.Beacon;
+import org.altbeacon.beacon.Region;
+
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 
 import ee.zed.findme.R;
@@ -26,7 +31,7 @@ import lombok.val;
 
 public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyViewHolder> {
 
-    List<LocationEntity> locationList;
+    List<LocationModel> locationList;
     Location currentLocation = new Location("dummy");
     private final LayoutInflater mInflater;
     private double geofenceRadius = 12.0;
@@ -47,10 +52,13 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
         val locationEntity = locationList.get(i);
         myViewHolder.title.setText(locationEntity.getName());
         myViewHolder.lat_lng.setText(String.format("%1$,.5f, %2$,.5f", locationEntity.getLat(), locationEntity.getLng() ));
-        double distance = currentLocation.distanceTo(locationEntity.getLocation());
-        myViewHolder.distance.setText(String.format("%1$,.2f m", distance ));
-        if (distance < geofenceRadius){
-            if(currentLocation.getAccuracy() < minAccuracy) {
+        double geoDistance = currentLocation.distanceTo(locationEntity.getLocation());
+        double beaconDistance = locationEntity.getBeacon() != null ? locationEntity.getBeacon().getDistance() : 999.0;
+        myViewHolder.geo_distance.setText(String.format("%1$,.2f m", geoDistance ));
+        myViewHolder.beacon_distance.setText(String.format("%1$,.2f m", beaconDistance ));
+
+        if (geoDistance < locationEntity.getRadius() || beaconDistance < locationEntity.getRadius()){
+            if(currentLocation.getAccuracy() < minAccuracy || beaconDistance < locationEntity.getRadius()) {
                 myViewHolder.itemView.setBackgroundColor(Color.GREEN);
                 if (locationEntity.fenceEnterTime == null) {
                     locationEntity.fenceEnterTime = LocalDateTime.now();
@@ -72,7 +80,7 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
 
     }
 
-    public void setLocations(List<LocationEntity> locations){
+    public void setLocations(List<LocationModel> locations){
         locationList = locations;
         notifyDataSetChanged();
     }
@@ -84,7 +92,7 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
         else return 0;
     }
     
-    public LocationEntity getItem(int position) {
+    public LocationModel getItem(int position) {
         return locationList.get(position);
     }
 
@@ -117,11 +125,23 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
         this.minAccuracy = minAccuracy;
     }
 
+    public void beaconsChanged(Collection<Beacon> collection, Region region) {
+        for(Beacon beacon: collection){
+            for(LocationModel location: locationList) {
+                if (location.bt_address.equals(beacon.getBluetoothAddress())) {
+                    location.setBeacon(beacon);
+                }
+            }
+        }
+        notifyDataSetChanged();
+    }
+
 
     public class MyViewHolder extends RecyclerView.ViewHolder {
         public TextView title;
         public TextView lat_lng;
-        public TextView distance;
+        public TextView geo_distance;
+        public TextView beacon_distance;
         public TextView time;
 
         public MyViewHolder(@NonNull View itemView) {
@@ -129,7 +149,8 @@ public class LocationAdapter extends RecyclerView.Adapter<LocationAdapter.MyView
 
             title =  itemView.findViewById(R.id.title);
             lat_lng =  itemView.findViewById(R.id.lat_lng);
-            distance =  itemView.findViewById(R.id.distance);
+            geo_distance =  itemView.findViewById(R.id.geo_distance);
+            beacon_distance =  itemView.findViewById(R.id.beacon_distance);
             time =  itemView.findViewById(R.id.time);
         }
     }

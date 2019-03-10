@@ -37,6 +37,9 @@ dependencies {
     compileOnly 'org.projectlombok:lombok:1.18.4'
     annotationProcessor 'org.projectlombok:lombok:1.18.4'
 
+    implementation 'com.opencsv:opencsv:3.9'
+    implementation 'org.altbeacon:android-beacon-library:2.12.1'
+
 
     implementation "android.arch.persistence.room:runtime:$rootProject.roomVersion"
     annotationProcessor "android.arch.persistence.room:compiler:$rootProject.roomVersion"

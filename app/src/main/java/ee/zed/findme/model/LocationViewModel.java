@@ -7,23 +7,14 @@ import android.arch.lifecycle.LiveData;
 import java.util.List;
 
 public class LocationViewModel extends AndroidViewModel {
-    private LocationRepository mRepository;
 
-    private LiveData<List<LocationEntity>> mAllLocations;
+    private List<LocationModel> mAllLocations;
 
-    public LocationViewModel (Application application) {
+    public LocationViewModel (Application application, List<LocationModel> locationModelList) {
         super(application);
-        mRepository = new LocationRepository(application);
-        mAllLocations = mRepository.getAllLocations();
+        mAllLocations = locationModelList;
     }
 
-    public LiveData<List<LocationEntity>> getAllLocations() { return mAllLocations; }
+    public List<LocationModel> getAllLocations() { return mAllLocations; }
 
-    public void insert(LocationEntity locationEntity) {
-        mRepository.insert(locationEntity);
-    }
-
-    public void delete(LocationEntity locationEntity) {
-        mRepository.delete(locationEntity);
-    }
 }
